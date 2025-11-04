@@ -1,0 +1,115 @@
+# OPTIMIZED LAMMPS input script
+# Structure: DHCP, Temperature: 650K
+# OPTIMIZATION: Reduced steps, better neighbor settings, adaptive timestep
+
+# PARALLELIZATION SETTINGS (OpenMP)
+package         omp 8 neigh yes
+suffix          omp
+
+# VARIABLE DEFINITIONS
+variable        structure string DHCP
+variable        temp equal 650
+variable        structure_file string structure_dhcp.data
+
+# INITIALIZATION
+units           metal
+atom_style      atomic
+boundary        p p p
+
+read_data       ${structure_file}
+
+# INTERATOMIC POTENTIAL
+pair_style      meam
+pair_coeff      * * library.meam Al Fe Ni AlFeNi.meam Al Fe Ni
+
+# OPTIMIZED NEIGHBOR SETTINGS (larger skin for fewer rebuilds)
+neighbor        3.0 bin
+neigh_modify    every 2 delay 4 check yes one 4000
+
+# COMPUTE DEFINITIONS
+variable        natoms equal atoms
+variable        area_xy equal lx*ly
+
+# OUTPUT SETTINGS (less frequent for speed)
+thermo          500
+thermo_style    custom step temp pe ke etotal press vol lx ly lz
+thermo_modify   flush yes
+
+log             log.${structure}.${temp}K.lammps
+
+# STAGE 1: ENERGY MINIMIZATION (faster convergence)
+print           "=== STAGE 1: Energy Minimization ==="
+
+min_style       cg
+min_modify      dmax 0.2
+minimize        1.0e-6 1.0e-8 5000 50000
+
+variable        pe_min equal pe
+variable        pe_min_atom equal pe/v_natoms
+
+print           "Minimized PE/atom: ${pe_min_atom} eV/atom"
+
+# STAGE 2: NPT EQUILIBRATION (REDUCED from 50k to 20k steps)
+print           "=== STAGE 2: NPT Equilibration at ${temp} K ==="
+
+reset_timestep  0
+velocity        all create ${temp} 87654 dist gaussian
+
+# OPTIMIZED: Adaptive timestep for faster equilibration
+timestep        0.002
+
+fix             npt1 all npt temp ${temp} ${temp} $(100*dt) iso 0.0 0.0 $(1000*dt)
+
+# Quick equilibration
+run             20000
+
+unfix           npt1
+
+# STAGE 3: NPT PRODUCTION (REDUCED from 100k to 50k steps)
+print           "=== STAGE 3: NPT Production at ${temp} K ==="
+
+reset_timestep  0
+
+# Slightly smaller timestep for production
+timestep        0.001
+
+fix             npt2 all npt temp ${temp} ${temp} $(100*dt) iso 0.0 0.0 $(1000*dt)
+
+variable        pe_step equal pe
+variable        pe_atom_step equal pe/v_natoms
+variable        vol_step equal vol
+variable        lx_step equal lx
+variable        ly_step equal ly
+variable        lz_step equal lz
+
+# OPTIMIZED: Average over last 25k steps instead of 100k
+fix             ave_pe all ave/time 50 100 5000 v_pe_atom_step &
+                file pe_vs_time.${structure}.${temp}K.dat
+
+fix             ave_vol all ave/time 50 100 5000 v_vol_step v_lx_step v_ly_step v_lz_step &
+                file vol_vs_time.${structure}.${temp}K.dat
+
+run             50000
+
+# EXTRACT RESULTS
+variable        pe_avg equal f_ave_pe
+variable        lx_final equal lx
+variable        ly_final equal ly
+variable        lz_final equal lz
+variable        vol_final equal vol
+variable        area_final equal v_lx_final*v_ly_final
+
+print           ""
+print           "=== FINAL RESULTS: ${structure} at ${temp} K ==="
+print           "Atoms: ${natoms} | PE/atom: ${pe_avg} eV/atom"
+print           "Volume: ${vol_final} Å³ | Area: ${area_final} Ų"
+print           "=========================================="
+
+print           "${structure} ${temp} ${natoms} ${pe_avg} ${vol_final} ${lx_final} ${ly_final} ${lz_final} ${area_final}" &
+                append results_summary.txt
+
+unfix           npt2
+unfix           ave_pe
+unfix           ave_vol
+
+print           "Simulation complete!"

@@ -1,0 +1,51 @@
+LAMMPS (10 Sep 2025)
+  using 8 OpenMP thread(s) per MPI task
+Loaded 1 plugins from C:\Users\kumar\AppData\Local\LAMMPS 64-bit 10Sep2025\plugins
+# OPTIMIZED LAMMPS input script
+# Structure: DHCP, Temperature: 650K
+# OPTIMIZATION: Reduced steps, better neighbor settings, adaptive timestep
+
+# PARALLELIZATION SETTINGS (OpenMP)
+package         omp 8 neigh yes
+using multi-threaded neighbor list subroutines
+suffix          omp
+
+# VARIABLE DEFINITIONS
+variable        structure string DHCP
+variable        temp equal 650
+variable        structure_file string structure_dhcp.data
+
+# INITIALIZATION
+units           metal
+atom_style      atomic
+boundary        p p p
+
+read_data       ${structure_file}
+read_data       structure_dhcp.data
+Reading data file ...
+  orthogonal box = (0 0 0) to (15.901417 27.542063 25.966906)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  432 atoms
+  read_data CPU = 0.003 seconds
+
+# INTERATOMIC POTENTIAL
+pair_style      meam
+pair_coeff      * * library.meam Al Fe Ni AlFeNi.meam Al Fe Ni
+
+# OPTIMIZED NEIGHBOR SETTINGS (larger skin for fewer rebuilds)
+neighbor        3.0 bin
+neigh_modify    every 2 delay 4 check yes one 4000
+
+# COMPUTE DEFINITIONS
+variable        natoms equal atoms
+variable        area_xy equal lx*ly
+
+# OUTPUT SETTINGS (less frequent for speed)
+thermo          500
+thermo_style    custom step temp pe ke etotal press vol lx ly lz
+thermo_modify   flush yes
+
+log             log.${structure}.${temp}K.lammps
+log             log.DHCP.${temp}K.lammps
+log             log.DHCP.650K.lammps
